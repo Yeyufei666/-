@@ -49,7 +49,7 @@ def register(app: Flask) -> None:
         try:
             policy = PolicyType(data["policy_type"])
         except (KeyError, ValueError):
-            raise BusinessError("报名方式无效，应为 direct 或 review")
+            raise BusinessError("报名方式无效，应为 direct、review 或 grade_direct")
         try:
             capacity = int(data["capacity"])
             start_at = datetime.fromisoformat(data["start_at"])
@@ -69,6 +69,22 @@ def register(app: Flask) -> None:
     @app.get("/api/activities/<int:activity_id>/stats")
     def activity_stats(activity_id):
         return jsonify(activity_svc.statistics(activity_id))
+
+    # ---------- 学生 ----------
+    @app.post("/api/students")
+    def create_student():
+        """注册学生（支持年级 grade）。"""
+        data = request.get_json(force=True)
+        student_id = data.get("student_id", "")
+        name = data.get("name", "")
+        try:
+            grade = int(data.get("grade", 1))
+        except (TypeError, ValueError):
+            raise BusinessError("年级格式无效，应为 1~4 的整数")
+        if student_id and name:
+            app.extensions["db"].add_student(student_id, name, grade)
+            return jsonify({"student_id": student_id, "name": name, "grade": grade}), 201
+        raise BusinessError("缺少 student_id 或 name")
 
     # ---------- 报名 ----------
     @app.post("/api/activities/<int:activity_id>/register")
@@ -131,4 +147,20 @@ def register(app: Flask) -> None:
                 "is_read": m.is_read,
             }
             for m in msgs
+        ])
+
+    # ---------- 邮件记录 (CR-02) ----------
+    @app.get("/api/students/<student_id>/emails")
+    def list_emails(student_id):
+        records = app.extensions["db"].list_email_records(student_id)
+        return jsonify([
+            {
+                "email_id": r.email_id,
+                "subject": r.subject,
+                "content": r.content,
+                "status": r.status,
+                "error": r.error,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in records
         ])

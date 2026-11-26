@@ -11,6 +11,7 @@ from typing import Optional
 
 from .models import (
     Activity,
+    EmailRecord,
     Message,
     PolicyType,
     Registration,
@@ -37,7 +38,8 @@ class Database:
             """
             CREATE TABLE IF NOT EXISTS student (
                 student_id TEXT PRIMARY KEY,
-                name       TEXT NOT NULL
+                name       TEXT NOT NULL,
+                grade      INTEGER NOT NULL DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS activity (
                 activity_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,28 +70,51 @@ class Database:
                 is_read    INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (student_id) REFERENCES student(student_id)
             );
+            CREATE TABLE IF NOT EXISTS email_record (
+                email_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id TEXT NOT NULL,
+                subject    TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                status     TEXT NOT NULL,
+                error      TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (student_id) REFERENCES student(student_id)
+            );
             """
         )
         self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """轻量 schema 迁移：为旧库补充新增列。"""
+        cur = self._conn.cursor()
+        cols = [r["name"] for r in cur.execute("PRAGMA table_info(student)").fetchall()]
+        if "grade" not in cols:
+            cur.execute("ALTER TABLE student ADD COLUMN grade INTEGER NOT NULL DEFAULT 1")
+            self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
 
     # ---------- Student ----------
-    def add_student(self, student_id: str, name: str) -> Student:
+    def add_student(self, student_id: str, name: str, grade: int = 1) -> Student:
         self._conn.execute(
-            "INSERT OR REPLACE INTO student (student_id, name) VALUES (?, ?)",
-            (student_id, name),
+            "INSERT OR REPLACE INTO student (student_id, name, grade) VALUES (?, ?, ?)",
+            (student_id, name, grade),
         )
         self._conn.commit()
-        return Student(student_id=student_id, name=name)
+        return Student(student_id=student_id, name=name, grade=grade)
 
     def get_student(self, student_id: str) -> Optional[Student]:
         row = self._conn.execute(
-            "SELECT student_id, name FROM student WHERE student_id = ?",
+            "SELECT student_id, name, grade FROM student WHERE student_id = ?",
             (student_id,),
         ).fetchone()
-        return Student(student_id=row["student_id"], name=row["name"]) if row else None
+        return (
+            Student(student_id=row["student_id"], name=row["name"], grade=row["grade"])
+            if row
+            else None
+        )
 
     # ---------- Activity ----------
     def add_activity(self, a: Activity) -> Activity:
@@ -233,4 +258,33 @@ class Database:
             content=row["content"],
             created_at=_parse_dt(row["created_at"]),
             is_read=bool(row["is_read"]),
+        )
+
+    # ---------- EmailRecord (CR-02) ----------
+    def add_email_record(self, e: EmailRecord) -> EmailRecord:
+        cur = self._conn.execute(
+            "INSERT INTO email_record (student_id, subject, content, status, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (e.student_id, e.subject, e.content, e.status, e.error, e.created_at.isoformat()),
+        )
+        self._conn.commit()
+        e.email_id = cur.lastrowid
+        return e
+
+    def list_email_records(self, student_id: str) -> list[EmailRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM email_record WHERE student_id = ? ORDER BY email_id", (student_id,)
+        ).fetchall()
+        return [self._row_to_email_record(r) for r in rows]
+
+    @staticmethod
+    def _row_to_email_record(row: sqlite3.Row) -> EmailRecord:
+        return EmailRecord(
+            email_id=row["email_id"],
+            student_id=row["student_id"],
+            subject=row["subject"],
+            content=row["content"],
+            status=row["status"],
+            error=row["error"],
+            created_at=_parse_dt(row["created_at"]),
         )

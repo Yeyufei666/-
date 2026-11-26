@@ -11,10 +11,11 @@ from enum import Enum
 
 
 class PolicyType(str, Enum):
-    """报名方式：直接报名 / 管理员审核。"""
+    """报名方式：直接报名 / 管理员审核 / 年级限定直接报名。"""
 
     DIRECT = "direct"
     REVIEW = "review"
+    GRADE_DIRECT = "grade_direct"
 
 
 class RegistrationStatus(str, Enum):
@@ -36,6 +37,7 @@ class Student:
 
     student_id: str
     name: str
+    grade: int = 1  # 年级 1~4，CR-01 新增，默认 1
 
 
 @dataclass
@@ -73,3 +75,19 @@ class Message:
     content: str
     created_at: datetime
     is_read: bool = False
+
+
+@dataclass
+class EmailRecord:
+    """模拟邮件发送记录（CR-02）。
+
+    记录收件人、主题、内容、发送状态与时间；用于教学演示，不接入真实邮件服务器。
+    """
+
+    email_id: int
+    student_id: str
+    subject: str
+    content: str
+    status: str        # "sent" / "failed"
+    error: str = ""    # 失败原因（成功时为空）
+    created_at: datetime = None

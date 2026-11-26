@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from .errors import BusinessError
 from .models import (
     Activity,
     PolicyType,
@@ -25,10 +26,6 @@ from .models import (
 )
 from .notifications import EventDispatcher, RegistrationEvent
 from .policies import RegistrationPolicy, policy_for
-
-
-class BusinessError(Exception):
-    """业务规则违反异常，携带面向用户的提示。"""
 
 
 class ActivityService:
@@ -120,9 +117,10 @@ class RegistrationService:
         1. 活动存在；
         2. 活动开始前允许报名；
         3. 无重复有效报名；
-        4. 名额充足（按已通过计算）。
+        4. 名额充足（按已通过计算，仅直接通过类在提交时校验）。
 
-        策略差异：决定报名初始状态（直接通过 / 待审核）。
+        策略差异：决定报名初始状态（直接通过 / 待审核），
+        并可基于学生属性（如年级）做资格校验（CR-01）。
         """
         activity = self._activity_or_raise(activity_id)
 
@@ -133,11 +131,15 @@ class RegistrationService:
         if existing is not None:
             raise BusinessError("您已报名该活动，请勿重复报名")
 
-        policy = self._policy_for(activity)
-        status = policy.initial_status()
+        # 获取学生对象（策略可能依赖年级等属性做资格判断）
+        student = self._db.get_student(student_id)
 
-        # 名额检查仅对“直接报名”在提交时执行：
-        # 直接报名提交即通过、占用名额，须在此校验；
+        policy = self._policy_for(activity)
+        # 策略决定初始状态；不符合资格的报名会在此抛出 BusinessError
+        status = policy.decide(student)
+
+        # 名额检查仅对“直接通过”在提交时执行：
+        # 直接/年级限定报名提交即通过、占用名额，须在此校验；
         # 审核报名提交后为“待审核”，暂不占用名额，故提交时不校验，
         # 名额在批准时（approve）再次检查，避免满员仍可提交审核的歧义。
         if status is RegistrationStatus.APPROVED:

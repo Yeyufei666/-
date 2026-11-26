@@ -40,6 +40,7 @@
             <select id="policy_type">
                 <option value="direct">直接报名</option>
                 <option value="review">管理员审核</option>
+                <option value="grade_direct">年级限定直接报名</option>
             </select>
             <button onclick="createActivity()">创建</button>
         </div>
@@ -115,7 +116,7 @@
                 const tr = document.createElement("tr");
                 tr.innerHTML = `<td>${a.activity_id}</td><td>${a.title}</td><td>${a.category}</td>
                     <td>${a.start_at}</td><td>${a.location}</td><td>${a.capacity}</td>
-                    <td>${a.policy_type === "direct" ? "直接" : "审核"}</td>
+                    <td>${a.policy_type === "direct" ? "直接" : a.policy_type === "grade_direct" ? "年级限定" : "审核"}</td>
                     <td>${s.approved}</td><td>${s.pending}</td><td>${s.remaining}</td>`;
                 tb.appendChild(tr);
             });

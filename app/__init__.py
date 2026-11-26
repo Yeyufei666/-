@@ -9,7 +9,12 @@ import os
 from flask import Flask
 
 from .db import Database
-from .notifications import EventDispatcher, InboxNotificationListener
+from .notifications import (
+    EmailNotificationListener,
+    EventDispatcher,
+    InboxNotificationListener,
+    MockEmailSender,
+)
 from .services import ActivityService, RegistrationService
 
 
@@ -22,8 +27,13 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     db = Database(db_path)
 
+    # 测试可注入邮件失败开关，用于验证 CR2-03
+    email_failure = bool(test_config and test_config.get("email_failure", False))
+
     dispatcher = EventDispatcher()
     dispatcher.subscribe(InboxNotificationListener(db))
+    # CR-02：新增邮件通知监听器，与站内通知并列订阅同一事件
+    dispatcher.subscribe(EmailNotificationListener(MockEmailSender(db, failure=email_failure)))
 
     activity_service = ActivityService(db)
     registration_service = RegistrationService(db, dispatcher)

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, List
 
-from .models import Message
+from .models import EmailRecord, Message
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +74,64 @@ class InboxNotificationListener:
                 is_read=False,
             )
         )
+
+
+class MockEmailSender:
+    """模拟邮件发送器（CR-02）。
+
+    不接入真实邮件服务器，而是把“发送动作”记录到数据库（收件人/主题/内容/状态/时间），
+    便于教学演示与测试断言。可注入 failure 开关模拟发送失败。
+    """
+
+    def __init__(self, db, failure: bool = False) -> None:
+        self._db = db
+        self._failure = failure  # True 时模拟发送失败
+
+    def send(self, to: str, subject: str, body: str) -> EmailRecord:
+        if self._failure:
+            record = EmailRecord(
+                email_id=0,
+                student_id=to,
+                subject=subject,
+                content=body,
+                status="failed",
+                error="模拟邮件发送失败（网络异常）",
+                created_at=datetime.now(),
+            )
+            self._db.add_email_record(record)
+            raise RuntimeError("模拟邮件发送失败")
+        record = EmailRecord(
+            email_id=0,
+            student_id=to,
+            subject=subject,
+            content=body,
+            status="sent",
+            error="",
+            created_at=datetime.now(),
+        )
+        self._db.add_email_record(record)
+        return record
+
+
+class EmailNotificationListener:
+    """邮件通知监听器（CR-02）。
+
+    订阅报名事件，对“报名通过 / 审核通过 / 审核拒绝”三类事件同步发送模拟邮件。
+    邮件发送失败时记录错误日志（留痕），但不向上抛出，保证不回滚已成功的报名。
+    """
+
+    # 需要邮件通知的事件类型
+    NOTIFY_TYPES = {"submitted", "approved", "rejected"}
+
+    def __init__(self, sender: MockEmailSender) -> None:
+        self._sender = sender
+
+    def __call__(self, event: RegistrationEvent) -> None:
+        if event.event_type not in self.NOTIFY_TYPES:
+            return  # 取消等事件不触发邮件
+        subject = f"活动通知：{event.activity_title}"
+        try:
+            self._sender.send(event.student_id, subject, event.content)
+        except Exception as exc:
+            # 邮件失败仅记录错误，不影响报名业务
+            logger.error("邮件发送失败（student=%s）: %s", event.student_id, exc)
